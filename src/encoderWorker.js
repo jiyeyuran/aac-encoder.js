@@ -27,7 +27,6 @@ const AACEncoder = function (config, Module) {
       bitrate: 64000,
       sampleRate: 48000, // Desired encoding sample rate. Audio will be resampled
       encoderFrameSize: 20, // Specified in ms.
-      maxFramesPerPage: 40, // Tradeoff latency with overhead
       numberOfChannels: 1,
       originalSampleRate: 48000,
       resampleQuality: 3, // Value between 0 and 10 inclusive. 10 being highest quality.

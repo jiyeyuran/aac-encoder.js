@@ -54,7 +54,6 @@ AACRecorder.prototype.configure = function (config) {
       encoderFrameSize: 20,
       encoderPath: "encoderWorker.min.js",
       sampleRate: 48000,
-      maxFramesPerPage: 40,
       numberOfChannels: 1,
       resampleQuality: 3,
     },
