@@ -69,9 +69,12 @@ AACRecorder.prototype.configure = function (config) {
           resolve();
           break;
 
-        case "page":
-          this.init.output(data["page"]);
+        case "aac":
+          this.init.output(data["aac"]);
           break;
+
+        case "error":
+          this.init.error(new Error(data["error"]));
 
         case "done":
           this.encoder.removeEventListener("message", callback);
@@ -99,9 +102,33 @@ AACRecorder.prototype.configure = function (config) {
 
 AACRecorder.prototype.encode = function (audioData) {
   if (this.encoder) {
+    const buffers = [];
+
+    for (let index = 0; index < audioData.numberOfChannels; index++) {
+      const buffer = new Float32Array(audioData.numberOfFrames);
+
+      audioData.copyTo(buffer, {
+        planeIndex: index,
+        frameOffset: 0,
+        frameCount: audioData.numberOfFrames,
+        format: audioData.format,
+      });
+
+      const output = new DataView(
+        new ArrayBuffer(audioData.numberOfFrames * 2)
+      );
+
+      for (let i = 0; i < buffer.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        output.setInt16(i, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      }
+
+      buffers.push(output.buffer);
+    }
+
     this.encoder.postMessage({
       command: "encode",
-      buffers: [audioData],
+      buffers,
     });
   }
 };

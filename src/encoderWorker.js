@@ -12,7 +12,10 @@ const AACENC_AFTERBURNER = 512;
 const TT_MP4_ADTS = 2;
 const AACENC_OK = 0;
 
-const AACEncorder = function (config, Module) {
+const IN_AUDIO_DATA = 0;
+const OUT_BITSTREAM_DATA = 3;
+
+const AACEncoder = function (config, Module) {
   if (!Module) {
     throw new Error(
       "Module with exports required to initialize an encoder instance"
@@ -26,7 +29,7 @@ const AACEncorder = function (config, Module) {
       encoderFrameSize: 20, // Specified in ms.
       maxFramesPerPage: 40, // Tradeoff latency with overhead
       numberOfChannels: 1,
-      originalSampleRate: 44100,
+      originalSampleRate: 48000,
       resampleQuality: 3, // Value between 0 and 10 inclusive. 10 being highest quality.
     },
     config
@@ -37,40 +40,26 @@ const AACEncorder = function (config, Module) {
   this._aacEncInfo = Module._aacEncInfo;
   this._aacEncEncode = Module._aacEncEncode;
 
-  this._speex_resampler_process_interleaved_float =
-    Module._speex_resampler_process_interleaved_float;
+  this._speex_resampler_process_interleaved_int =
+    Module._speex_resampler_process_interleaved_int;
   this._speex_resampler_init = Module._speex_resampler_init;
   this._speex_resampler_destroy = Module._speex_resampler_destroy;
 
   this._free = Module._free;
   this._malloc = Module._malloc;
-  this.getValue = Module.getValue;
   this.HEAPU8 = Module.HEAPU8;
   this.HEAP16 = Module.HEAP16;
   this.HEAP32 = Module.HEAP32;
-  this.HEAPF32 = Module.HEAPF32;
-
-  this.pageIndex = 0;
-  this.segmentData = new Uint8Array(65025); // Maximum length of oggOpus data
-  this.segmentDataIndex = 0;
-  this.segmentTable = new Uint8Array(255); // Maximum data segments
-  this.segmentTableIndex = 0;
-  this.framesInPage = 0;
 
   this.initCodec();
   this.initResampler();
-
-  if (this.config.numberOfChannels === 1) {
-    this.interleave = function (buffers) {
-      return buffers[0];
-    };
-  }
 };
 
-AACEncorder.prototype.initCodec = function () {
+AACEncoder.prototype.initCodec = function () {
   const aot = 2;
   const afterburner = 1;
-  const { numberOfChannels, biterate, sampleRate } = this.config;
+  const { numberOfChannels, biterate, sampleRate, encoderFrameSize } =
+    this.config;
 
   this._handle = this._malloc(4);
   this._aacEncOpen(this._handle, 0, numberOfChannels);
@@ -84,15 +73,45 @@ AACEncorder.prototype.initCodec = function () {
 
   this._aacEncEncode(this._handle, null, null, null, null);
 
-  var info = this._malloc(4);
+  var infoPointer = this._malloc(4);
+  this._aacEncInfo(this._handle, infoPointer);
+  var frameLength = this.HEAP32[(infoPointer >> 2) + 5];
 
-  this._aacEncInfo(this._handle, info);
-  var frameLength = this.getValue(info + 20, "i32");
+  this.encoderSamplesPerChannel = (sampleRate * encoderFrameSize) / 1000;
+  this.encoderSamplesPerChannelPointer = this._malloc(4);
+  this.HEAP32[this.encoderSamplesPerChannelPointer >> 2] =
+    this.encoderSamplesPerChannel;
 
-  this._free(info);
+  this.encoderBufferLength = this.encoderSamplesPerChannel * numberOfChannels;
+  this.encoderBufferPointer = this._malloc(this.encoderBufferLength * 2); // 2 bytes per sample
+  this.encoderBuffer = this.HEAP16.subarray(
+    this.encoderBufferPointer >> 1,
+    (this.encoderBufferPointer >> 1) + this.encoderBufferLength
+  );
+
+  this.encoderOutputMaxLength = numberOfChannels * 2 * frameLength;
+  this.encoderOutputPointer = this._malloc(this.encoderOutputMaxLength);
+  this.encoderOutputBuffer = this.HEAPU8.subarray(
+    this.encoderOutputPointer,
+    this.encoderOutputPointer + this.encoderOutputMaxLength
+  );
+
+  this.inBufDescPointer = this.createBufDesc(
+    IN_AUDIO_DATA,
+    this.encoderBufferPointer,
+    this.encoderBufferLength
+  );
+  this.outBufDecPointer = this.createBufDesc(
+    OUT_BITSTREAM_DATA,
+    this.encoderOutputPointer,
+    this.encoderOutputMaxLength
+  );
+  this.inArgsPointer = this._malloc(4);
+  this.HEAP32[this.inArgsPointer >> 2] = this.encoderBufferLength;
+  this.outArgsPointer = this._malloc(4);
 };
 
-AACEncorder.prototype.initResampler = function () {
+AACEncoder.prototype.initResampler = function () {
   const {
     numberOfChannels,
     biterate,
@@ -120,14 +139,17 @@ AACEncorder.prototype.initResampler = function () {
     this.resampleSamplesPerChannel;
 
   this.resampleBufferLength = this.resampleSamplesPerChannel * numberOfChannels;
-  this.resampleBufferPointer = this._malloc(this.resampleBufferLength * 4); // 4 bytes per sample
-  this.resampleBuffer = this.HEAP32.subarray(
-    this.resampleBufferPointer >> 2,
-    (this.resampleBufferPointer >> 2) + this.resampleBufferLength
+  this.resampleBufferPointer = this._malloc(this.resampleBufferLength * 2); // 2 bytes per sample
+  this.resampleBuffer = this.HEAP16.subarray(
+    this.resampleBufferPointer >> 1,
+    (this.resampleBufferPointer >> 1) + this.resampleBufferLength
   );
 };
 
-AACEncorder.prototype.interleave = function (buffers) {
+AACEncoder.prototype.interleave = function (buffers) {
+  if (buffers.length === 1) {
+    return buffers[0];
+  }
   for (var i = 0; i < this.bufferLength; i++) {
     for (var channel = 0; channel < this.config.numberOfChannels; channel++) {
       this.interleavedBuffers[i * this.config.numberOfChannels + channel] =
@@ -138,18 +160,18 @@ AACEncorder.prototype.interleave = function (buffers) {
   return this.interleavedBuffers;
 };
 
-AACEncorder.prototype.encode = function (buffers) {
+AACEncoder.prototype.encode = function (buffers) {
   // Determine bufferLength dynamically
   if (!this.bufferLength) {
     this.bufferLength = buffers[0].length;
-    this.interleavedBuffers = new Float32Array(
+    this.interleavedBuffers = new Int16Array(
       this.bufferLength * this.config.numberOfChannels
     );
   }
 
   var samples = this.interleave(buffers);
   var sampleIndex = 0;
-  var exportPages = [];
+  var buffers = [];
 
   while (sampleIndex < samples.length) {
     var lengthToCopy = Math.min(
@@ -164,37 +186,43 @@ AACEncorder.prototype.encode = function (buffers) {
     this.resampleBufferIndex += lengthToCopy;
 
     if (this.resampleBufferIndex === this.resampleBufferLength) {
-      this._speex_resampler_process_interleaved_float(
+      this._speex_resampler_process_interleaved_int(
         this.resampler,
         this.resampleBufferPointer,
         this.resampleSamplesPerChannelPointer,
         this.encoderBufferPointer,
         this.encoderSamplesPerChannelPointer
       );
-      var packetLength = this._opus_encode_float(
-        this.encoder,
-        this.encoderBufferPointer,
-        this.encoderSamplesPerChannel,
-        this.encoderOutputPointer,
-        this.encoderOutputMaxLength
-      );
-      exportPages = exportPages.concat(this.segmentPacket(packetLength));
+
       this.resampleBufferIndex = 0;
 
-      this.framesInPage++;
-      if (this.framesInPage >= this.config.maxFramesPerPage) {
-        exportPages.push(this.generatePage());
-      }
+      this._aacEncEncode(
+        this._handle,
+        this.inBufDescPointer,
+        this.outBufDecPointer,
+        this.inArgsPointer,
+        this.outArgsPointer
+      );
+      const numOutBytes = this.getNumOutBytes();
+      var outBuffer = new Uint8Array(numOutBytes);
+      outBuffer.set(this.encoderOutputBuffer.subarray(0, numOutBytes));
+
+      buffers.push(outBuffer);
     }
   }
 
-  return exportPages;
+  return buffers;
 };
 
-AACEncorder.prototype.destroy = function () {
+AACEncoder.prototype.destroy = function () {
   if (this.encoder) {
     this._free(this.encoderSamplesPerChannelPointer);
     delete this.encoderSamplesPerChannelPointer;
+
+    this._free(this.inArgsPointer);
+    this._free(this.outArgsPointer);
+    this.freeBufDesc(this.inBufDescPointer);
+    this.freeBufDesc(this.outBufDecPointer);
 
     this._free(this.encoderBufferPointer);
     delete this.encoderBufferPointer;
@@ -213,81 +241,54 @@ AACEncorder.prototype.destroy = function () {
   }
 };
 
-AACEncorder.prototype.flush = function () {
-  var exportPage;
-  if (this.framesInPage) {
-    exportPage = this.generatePage();
-  }
+AACEncoder.prototype.flush = function () {
   // discard any pending data in resample buffer (only a few ms worth)
   this.resampleBufferIndex = 0;
-  return exportPage;
 };
 
-AACEncorder.prototype.encodeFinalFrame = function () {
-  var exportPages = [];
+AACEncoder.prototype.createBufDesc = function (
+  identifier,
+  bufferPointer,
+  length
+) {
+  const bufPtr = this._malloc(4);
+  const identifierPtr = this._malloc(4);
+  const sizePtr = this._malloc(4);
+  const elemSizePtr = this._malloc(4);
 
-  // Encode the data remaining in the resample buffer.
-  if (this.resampleBufferIndex > 0) {
-    const dataToFill =
-      (this.resampleBufferLength - this.resampleBufferIndex) /
-      this.config.numberOfChannels;
-    const numBuffers = Math.ceil(dataToFill / this.bufferLength);
+  this.HEAP32[bufPtr >> 2] = bufferPointer;
+  this.HEAP32[identifierPtr >> 2] = identifier;
+  this.HEAP32[sizePtr >> 2] = length;
+  this.HEAP32[elemSizePtr >> 2] = 2;
 
-    for (var i = 0; i < numBuffers; i++) {
-      var finalFrameBuffers = [];
-      for (var j = 0; j < this.config.numberOfChannels; j++) {
-        finalFrameBuffers.push(new Float32Array(this.bufferLength));
-      }
-      exportPages = exportPages.concat(this.encode(finalFrameBuffers));
-    }
-  }
+  // init AACENC_BufDesc struct
+  const bufDescPointer = this._malloc(4);
+  const basePointer = bufDescPointer >> 2;
+  this.HEAP32[basePointer++] = 1;
+  this.HEAP32[basePointer++] = bufPtr;
+  this.HEAP32[basePointer++] = identifierPtr;
+  this.HEAP32[basePointer++] = sizePtr;
+  this.HEAP32[basePointer++] = elemSizePtr;
 
-  this.headerType += 4;
-  exportPages.push(this.generatePage());
-  return exportPages;
+  return bufDescPointer;
 };
 
-AACEncorder.prototype.generatePage = function () {
-  // return exportPage;
+AACEncoder.prototype.freeBufDesc = function (bufDescPointer) {
+  this._free(this.HEAP32[(bufDescPointer >> 2) + 1]);
+  this._free(this.HEAP32[(bufDescPointer >> 2) + 2]);
+  this._free(this.HEAP32[(bufDescPointer >> 2) + 3]);
+  this._free(this.HEAP32[(bufDescPointer >> 2) + 4]);
+  this._free(bufDescPointer);
 };
 
-AACEncorder.prototype.segmentPacket = function (packetLength) {
-  var packetIndex = 0;
-  var exportPages = [];
-
-  while (packetLength >= 0) {
-    if (this.segmentTableIndex === 255) {
-      exportPages.push(this.generatePage());
-      this.headerType = 1;
-    }
-
-    var segmentLength = Math.min(packetLength, 255);
-    this.segmentTable[this.segmentTableIndex++] = segmentLength;
-    this.segmentData.set(
-      this.encoderOutputBuffer.subarray(
-        packetIndex,
-        packetIndex + segmentLength
-      ),
-      this.segmentDataIndex
-    );
-    this.segmentDataIndex += segmentLength;
-    packetIndex += segmentLength;
-    packetLength -= 255;
-  }
-
-  this.granulePosition += 48 * this.config.encoderFrameSize;
-  if (this.segmentTableIndex === 255) {
-    exportPages.push(this.generatePage());
-    this.headerType = 0;
-  }
-
-  return exportPages;
+AACEncoder.prototype.getNumOutBytes = function () {
+  return this.HEAP32[this.outArgsPointer >> 2];
 };
 
 var encoder;
-var postPageGlobal = (pageData) => {
-  if (pageData) {
-    postMessage(pageData, [pageData.page.buffer]);
+var postAACDataGlobal = (aacData) => {
+  if (aacData) {
+    postMessage({ message: "aac", aac: aacData }, [aacData.data.buffer]);
   }
 };
 
@@ -297,21 +298,13 @@ onmessage = ({ data }) => {
       case "encode":
         encoder
           .encode(data["buffers"])
-          .forEach((pageData) => postPageGlobal(pageData));
+          .forEach((aacData) => postAACDataGlobal(aacData));
         break;
 
       case "done":
-        encoder
-          .encodeFinalFrame()
-          .forEach((pageData) => postPageGlobal(pageData));
         encoder.destroy();
         encoder = null;
         postMessage({ message: "done" });
-        break;
-
-      case "flush":
-        postPageGlobal(encoder.flush());
-        postMessage({ message: "flushed" });
         break;
 
       default:
@@ -325,7 +318,7 @@ onmessage = ({ data }) => {
       break;
 
     case "init":
-      encoder = new AACEncorder(data, Module);
+      encoder = new AACEncoder(data, Module);
       postMessage({ message: "ready" });
       break;
 
@@ -338,5 +331,5 @@ onmessage = ({ data }) => {
 var module = module || {};
 module.exports = {
   Module: Module,
-  AACEncorder: AACEncorder,
+  AACEncoder: AACEncoder,
 };

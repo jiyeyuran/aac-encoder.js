@@ -1,3 +1,6 @@
 [submodule "build/fdk-aac"]
 	path = build/fdk-aac
 	url = git@github.com:jiyeyuran/fdk-aac.git
+[submodule "build/speexdsp"]
+	path = build/speexdsp
+	url = git@github.com:xiph/speexdsp.git
