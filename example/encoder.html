@@ -1,0 +1,89 @@
+<html>
+  <head>
+    <title>AAC Stream Encoder Test</title>
+    <script src="../dist/aac-encoder.min.js"></script>
+  </head>
+  <body>
+    View output in browser console.
+    <button id="start">start</button>
+  </body>
+  <script>
+    let audioCodecType = "aac";
+    let aacEncoder = new AACEncoder({
+      output: handleAudioEncoded,
+      error: (err) => {
+        console.log("AACEncoder error", err);
+      },
+    });
+    let audioTrack;
+    let decodedAudio = [];
+
+    function start() {
+      navigator.mediaDevices
+        .getUserMedia({
+          audio: true,
+          video: false,
+        })
+        .then((stream) => {
+          const [audio] = stream.getAudioTracks();
+          audioTrack = audio;
+          readAudioData(audioTrack);
+        });
+    }
+
+    async function readAudioData(audioTrack) {
+      const { channelCount, sampleRate } = audioTrack.getCapabilities();
+      const processor = new MediaStreamTrackProcessor(audioTrack);
+      const reader = processor.readable.getReader();
+
+      let i = 0;
+      let start = new Date();
+
+      await aacEncoder.configure({
+        bitrate: 64000 * channelCount.max,
+        numberOfChannels: channelCount.max,
+        sampleRate: sampleRate.max,
+      });
+
+      while (true) {
+        const result = await reader.read();
+
+        if (result.done) {
+          break;
+        }
+        aacEncoder.encode(result.value);
+        result.value.close();
+      }
+    }
+
+    function handleAudioEncoded(chunk) {
+      let chunkData = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(chunkData);
+      decodedAudio.push(chunk);
+    }
+
+    function stop() {
+      if (audioTrack) {
+        audioTrack.stop();
+        // console.log(decodedAudio);
+        const aacBlob = new Blob(decodedAudio, {
+          type: "audio/" + audioCodecType,
+        });
+        const url = URL.createObjectURL(aacBlob);
+        document.body.innerHTML = `<audio src="${url}" controls></audio>`;
+      }
+    }
+
+    var started = false;
+
+    document.getElementById("start").onclick = function (e) {
+      if (!started) {
+        start();
+        started = true;
+        e.target.innerText = "stop";
+      } else {
+        stop();
+      }
+    };
+  </script>
+</html>
