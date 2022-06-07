@@ -43,13 +43,13 @@
         biterate: 64000,
         numberOfChannels: 1,
         sampleRate: sampleRate.max,
-        encoderFrameSize: 60,
       });
 
       while (true) {
         const result = await reader.read();
 
         if (result.done) {
+          audioEncoder.close();
           break;
         }
         audioEncoder.encode(result.value);
@@ -69,7 +69,7 @@
     function stop() {
       if (audioTrack) {
         audioTrack.stop();
-        saveData(decodedAudio, "output.aac");
+        // saveData(decodedAudio, "output.aac");
         const aacBlob = new Blob(decodedAudio, {
           type: "audio/" + audioCodecType,
         });

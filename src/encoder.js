@@ -51,7 +51,6 @@ AACRecorder.prototype.configure = function (config) {
   this.config = Object.assign(
     {
       bitrate: 64000,
-      encoderFrameSize: 20,
       encoderPath: "encoderWorker.min.js",
       sampleRate: 48000,
       numberOfChannels: 1,
@@ -72,14 +71,15 @@ AACRecorder.prototype.configure = function (config) {
           break;
 
         case "aac":
+          const now = Date.now();
           if (!startTime) {
-            startTime = Date.now();
+            startTime = now;
           }
           this.init.output(
             new EncodedAudioChunk({
               type: "key",
-              timestamp: (Date.now() - startTime) * 1000,
-              duration: this.config.encoderFrameSize * 1000,
+              timestamp: (now - startTime) * 1000,
+              duration: 0,
               data: data["aac"],
             })
           );

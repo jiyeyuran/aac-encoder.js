@@ -1828,7 +1828,6 @@ const AACEncoder = function (config, Module) {
     {
       bitrate: 64000,
       sampleRate: 48000, // Desired encoding sample rate. Audio will be resampled
-      encoderFrameSize: 20, // Specified in ms.
       numberOfChannels: 1,
     },
     config
@@ -1851,7 +1850,7 @@ const AACEncoder = function (config, Module) {
 AACEncoder.prototype.initCodec = function () {
   const aot = 2;
   const afterburner = 1;
-  const { numberOfChannels, biterate, sampleRate, encoderFrameSize } =
+  const { numberOfChannels, biterate, sampleRate } =
     this.config;
   let ret;
 
@@ -1909,10 +1908,7 @@ AACEncoder.prototype.initCodec = function () {
     throw new Error("Unable to get the encoder info");
   }
   const frameLength = this.HEAP32[(infoPointer >> 2) + 4];
-  this.dwInputSizeFixed = numberOfChannels * 2 * frameLength;
 
-  // const encoderSamplesPerChannel = (sampleRate * encoderFrameSize) / 1000;
-  // this.encoderBufferLength = encoderSamplesPerChannel * numberOfChannels;
   this.encoderBufferLength = numberOfChannels * frameLength;
   this.encoderBufferPointer = this._malloc(this.encoderBufferLength * 2); // 2 bytes per sample
   this.encoderBuffer = this.HEAP16.subarray(
