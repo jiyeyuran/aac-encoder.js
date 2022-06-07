@@ -7,7 +7,7 @@ DEFAULT_EXPORTS:='_malloc','_free'
 LIBAAC_ENCODER_SRC=$(INPUT_DIR)/encoderWorker.js
 LIBAAC_ENCODER_MIN=$(OUTPUT_DIR)/encoderWorker.min.js
 LIBAAC_ENCODER=$(OUTPUT_DIR_UNMINIFIED)/encoderWorker.js
-LIBAAC_DIR=./build/fdk-aac
+LIBAAC_DIR=./fdk-aac
 LIBAAC_OBJ=$(LIBAAC_DIR)/.libs/libfdk-aac.a
 LIBAAC_ENCODER_EXPORTS:='_aacEncOpen','_aacEncoder_SetParam','_aacEncInfo','_aacEncEncode'
 
