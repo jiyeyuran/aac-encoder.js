@@ -244,7 +244,7 @@ AACEncoder.prototype.flush = function () {
     buffers.push(buffer);
   }
 
-  buffers.forEach((buffer) => postAACDataGlobal(buffer));
+  return buffers;
 };
 
 AACEncoder.prototype.createInBufDesc = function (bufferPointer, length) {
@@ -330,7 +330,7 @@ onmessage = ({ data }) => {
         break;
 
       case "flush":
-        encoder.flush();
+        encoder.flush().forEach((data) => postAACDataGlobal(data));;
         postMessage({ message: "flushed" });
 
       default:
