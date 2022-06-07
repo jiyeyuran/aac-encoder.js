@@ -70,11 +70,16 @@ AACEncoder.prototype.initCodec = function () {
   this._aacEncoder_SetParam(this._handle, AACENC_TRANSMUX, TT_MP4_ADTS);
   this._aacEncoder_SetParam(this._handle, AACENC_AFTERBURNER, afterburner);
 
-  this._aacEncEncode(this._handle, null, null, null, null);
+  let ret = this._aacEncEncode(this._handle, null, null, null, null);
 
-  var infoPointer = this._malloc(4);
+  if (ret !== AACENC_OK) {
+    throw new Error("aac encoder init failed");
+  }
+
+  var infoPointer = this._malloc(96);
   this._aacEncInfo(this._handle, infoPointer);
   var frameLength = this.HEAP32[(infoPointer >> 2) + 5];
+  console.log("infoPointer", infoPointer, "_handle", this._handle, frameLength);
 
   this.encoderSamplesPerChannel = (sampleRate * encoderFrameSize) / 1000;
   this.encoderSamplesPerChannelPointer = this._malloc(4);
@@ -105,9 +110,9 @@ AACEncoder.prototype.initCodec = function () {
     this.encoderOutputPointer,
     this.encoderOutputMaxLength
   );
-  this.inArgsPointer = this._malloc(4);
+  this.inArgsPointer = this._malloc(8);
   this.HEAP32[this.inArgsPointer >> 2] = this.encoderBufferLength;
-  this.outArgsPointer = this._malloc(4);
+  this.outArgsPointer = this._malloc(16);
 };
 
 AACEncoder.prototype.initResampler = function () {
@@ -250,7 +255,7 @@ AACEncoder.prototype.createBufDesc = function (
   bufferPointer,
   length
 ) {
-  const bufPtr = this._malloc(4);
+  const bufPtr = this._malloc(20);
   const identifierPtr = this._malloc(4);
   const sizePtr = this._malloc(4);
   const elemSizePtr = this._malloc(4);

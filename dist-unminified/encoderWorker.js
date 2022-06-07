@@ -1836,7 +1836,6 @@ const AACEncoder = function (config, Module) {
       bitrate: 64000,
       sampleRate: 48000, // Desired encoding sample rate. Audio will be resampled
       encoderFrameSize: 20, // Specified in ms.
-      maxFramesPerPage: 40, // Tradeoff latency with overhead
       numberOfChannels: 1,
       originalSampleRate: 48000,
       resampleQuality: 3, // Value between 0 and 10 inclusive. 10 being highest quality.
@@ -1878,13 +1877,15 @@ AACEncoder.prototype.initCodec = function () {
   this._aacEncoder_SetParam(this._handle, AACENC_CHANNELORDER, 1);
   this._aacEncoder_SetParam(this._handle, AACENC_BITRATE, biterate);
   this._aacEncoder_SetParam(this._handle, AACENC_TRANSMUX, TT_MP4_ADTS);
-  this._aacEncoder_SetParam(this._handle, AACENC_AFTERBURNER, afterburner);
+  let ret = this._aacEncoder_SetParam(this._handle, AACENC_AFTERBURNER, afterburner);
+  console.log('ret1', ret);
+   ret = this._aacEncEncode(this._handle, null, null, null, null);
+   console.log('ret2', ret);
 
-  this._aacEncEncode(this._handle, null, null, null, null);
-
-  var infoPointer = this._malloc(4);
+  var infoPointer = this._malloc(96);
   this._aacEncInfo(this._handle, infoPointer);
   var frameLength = this.HEAP32[(infoPointer >> 2) + 5];
+  console.log("infoPointer", infoPointer, "_handle", this._handle, frameLength);
 
   this.encoderSamplesPerChannel = (sampleRate * encoderFrameSize) / 1000;
   this.encoderSamplesPerChannelPointer = this._malloc(4);

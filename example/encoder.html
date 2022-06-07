@@ -1,7 +1,7 @@
 <html>
   <head>
     <title>AAC Stream Encoder Test</title>
-    <script src="../dist/aac-encoder.min.js"></script>
+    <script src="../dist-unminified/aac-encoder.js"></script>
   </head>
   <body>
     View output in browser console.
@@ -36,11 +36,8 @@
       const processor = new MediaStreamTrackProcessor(audioTrack);
       const reader = processor.readable.getReader();
 
-      let i = 0;
-      let start = new Date();
-
       await aacEncoder.configure({
-        bitrate: 64000 * channelCount.max,
+        encoderPath: '../dist-unminified/encoderWorker.js',
         numberOfChannels: channelCount.max,
         sampleRate: sampleRate.max,
       });

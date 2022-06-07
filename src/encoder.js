@@ -60,6 +60,10 @@ AACRecorder.prototype.configure = function (config) {
     config
   );
 
+  this.encoder = new global.Worker(this.config.encoderPath);
+  
+  var startTime;
+
   return new Promise((resolve) => {
     var callback = ({ data }) => {
       switch (data["message"]) {
@@ -69,7 +73,17 @@ AACRecorder.prototype.configure = function (config) {
           break;
 
         case "aac":
-          this.init.output(data["aac"]);
+          if (!startTime) {
+            startTime = Date.now();
+          }
+          this.init.output(
+            new EncodedAudioChunk({
+              type: "key",
+              timestamp: (Date.now() - startTime) * 1000,
+              duration: this.config.encoderFrameSize,
+              data: data["aac"],
+            })
+          );
           break;
 
         case "error":
@@ -128,7 +142,8 @@ AACRecorder.prototype.encode = function (audioData) {
     this.encoder.postMessage({
       command: "encode",
       buffers,
-    });
+      sampleRate: audioData.sampleRate,
+    }, [buffers]);
   }
 };
 
@@ -153,4 +168,5 @@ AACRecorder.prototype.close = function () {
   }
 };
 
+global.AACRecorder = AACRecorder;
 module.exports = AACRecorder;
