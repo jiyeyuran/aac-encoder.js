@@ -11,10 +11,6 @@ LIBAAC_DIR=./build/fdk-aac
 LIBAAC_OBJ=$(LIBAAC_DIR)/.libs/libfdk-aac.a
 LIBAAC_ENCODER_EXPORTS:='_aacEncOpen','_aacEncoder_SetParam','_aacEncInfo','_aacEncEncode'
 
-LIBSPEEXDSP_DIR=./build/speexdsp
-LIBSPEEXDSP_OBJ=$(LIBSPEEXDSP_DIR)/libspeexdsp/.libs/libspeexdsp.a
-LIBSPEEXDSP_EXPORTS:='_speex_resampler_init','_speex_resampler_process_interleaved_int','_speex_resampler_destroy'
-
 AAC_ENCODER_MIN=$(OUTPUT_DIR)/aac-encoder.min.js
 AAC_ENCODER=$(OUTPUT_DIR_UNMINIFIED)/aac-encoder.js
 AAC_ENCODER_SRC=$(INPUT_DIR)/encoder.js
@@ -35,7 +31,7 @@ test:
 
 .PHONY: test
 
-$(LIBAAC_DIR)/autogen.sh $(LIBSPEEXDSP_DIR)/autogen.sh:
+$(LIBAAC_DIR)/autogen.sh:
 	git submodule update --init
 
 $(LIBAAC_OBJ): $(LIBAAC_DIR)/autogen.sh
@@ -43,16 +39,11 @@ $(LIBAAC_OBJ): $(LIBAAC_DIR)/autogen.sh
 	cd $(LIBAAC_DIR); emconfigure ./configure
 	cd $(LIBAAC_DIR); emmake make
 
-$(LIBSPEEXDSP_OBJ): $(LIBSPEEXDSP_DIR)/autogen.sh
-	cd $(LIBSPEEXDSP_DIR); ./autogen.sh
-	cd $(LIBSPEEXDSP_DIR); emconfigure ./configure --disable-examples --disable-neon
-	cd $(LIBSPEEXDSP_DIR); emmake make
+$(LIBAAC_ENCODER): $(LIBAAC_ENCODER_SRC) $(LIBAAC_OBJ)
+	emcc -o $@ $(EMCC_OPTS) -s BINARYEN_ASYNC_COMPILATION=0 -s SINGLE_FILE=1 -g3 -s EXPORTED_FUNCTIONS="[$(DEFAULT_EXPORTS),$(LIBAAC_ENCODER_EXPORTS)]" --post-js $(LIBAAC_ENCODER_SRC) $(LIBAAC_OBJ)
 
-$(LIBAAC_ENCODER): $(LIBAAC_ENCODER_SRC) $(LIBAAC_OBJ) $(LIBSPEEXDSP_OBJ)
-	emcc -o $@ $(EMCC_OPTS) -s BINARYEN_ASYNC_COMPILATION=0 -s SINGLE_FILE=1 -g3 -s EXPORTED_FUNCTIONS="[$(DEFAULT_EXPORTS),$(LIBAAC_ENCODER_EXPORTS),$(LIBSPEEXDSP_EXPORTS)]" --post-js $(LIBAAC_ENCODER_SRC) $(LIBAAC_OBJ) $(LIBSPEEXDSP_OBJ)
-
-$(LIBAAC_ENCODER_MIN): $(LIBAAC_ENCODER_SRC) $(LIBAAC_OBJ) $(LIBSPEEXDSP_OBJ)
-	emcc -o $@ $(EMCC_OPTS) -s BINARYEN_ASYNC_COMPILATION=0 -s SINGLE_FILE=1 -s EXPORTED_FUNCTIONS="[$(DEFAULT_EXPORTS),$(LIBAAC_ENCODER_EXPORTS),$(LIBSPEEXDSP_EXPORTS)]" --post-js $(LIBAAC_ENCODER_SRC) $(LIBAAC_OBJ) $(LIBSPEEXDSP_OBJ)
+$(LIBAAC_ENCODER_MIN): $(LIBAAC_ENCODER_SRC) $(LIBAAC_OBJ)
+	emcc -o $@ $(EMCC_OPTS) -s BINARYEN_ASYNC_COMPILATION=0 -s SINGLE_FILE=1 -s EXPORTED_FUNCTIONS="[$(DEFAULT_EXPORTS),$(LIBAAC_ENCODER_EXPORTS)]" --post-js $(LIBAAC_ENCODER_SRC) $(LIBAAC_OBJ)
 
 $(AAC_ENCODER): $(AAC_ENCODER_SRC)
 	npm run webpack -- --config webpack.config.js -d --output-library AACEncoder $(AAC_ENCODER_SRC) -o $@

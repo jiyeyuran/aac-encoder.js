@@ -8,7 +8,7 @@
     <button id="start">start</button>
   </body>
   <script>
-    let audioCodecType = "opus";
+    let audioCodecType = "aac";
     let AEncoder = audioCodecType === "aac" ? AACEncoder : AudioEncoder;
     let audioEncoder = new AEncoder({
       output: handleAudioEncoded,
@@ -38,11 +38,12 @@
       const reader = processor.readable.getReader();
 
       await audioEncoder.configure({
-        encoderPath: '../dist-unminified/encoderWorker.js',
+        encoderPath: "../dist-unminified/encoderWorker.js",
         codec: audioCodecType,
         biterate: 64000,
         numberOfChannels: 1,
         sampleRate: sampleRate.max,
+        encoderFrameSize: 60,
       });
 
       while (true) {
@@ -60,16 +61,15 @@
       if (chunk.byteLength === 0) {
         return;
       }
-      console.log('audio', chunk);
       let chunkData = new Uint8Array(chunk.byteLength);
       chunk.copyTo(chunkData);
-      decodedAudio.push(chunk);
+      decodedAudio.push(chunkData);
     }
 
     function stop() {
       if (audioTrack) {
         audioTrack.stop();
-        // console.log(decodedAudio);
+        saveData(decodedAudio, "output.aac");
         const aacBlob = new Blob(decodedAudio, {
           type: "audio/" + audioCodecType,
         });
@@ -77,6 +77,20 @@
         document.body.innerHTML = `<audio src="${url}" controls></audio>`;
       }
     }
+
+    var saveData = (function () {
+      var a = document.createElement("a");
+      document.body.appendChild(a);
+      a.style = "display: none";
+      return function (data, fileName) {
+        var blob = new Blob(decodedAudio, { type: "audio/aac" });
+        var url = window.URL.createObjectURL(blob);
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      };
+    })();
 
     var started = false;
 

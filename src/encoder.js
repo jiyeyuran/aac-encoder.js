@@ -55,7 +55,6 @@ AACRecorder.prototype.configure = function (config) {
       encoderPath: "encoderWorker.min.js",
       sampleRate: 48000,
       numberOfChannels: 1,
-      resampleQuality: 3,
     },
     config
   );
@@ -127,22 +126,12 @@ AACRecorder.prototype.encode = function (audioData) {
         format: audioData.format,
       });
 
-      const output = new DataView(
-        new ArrayBuffer(audioData.numberOfFrames * 2)
-      );
-
-      for (let i = 0; i < input.length; i++) {
-        const s = Math.max(-1, Math.min(1, input[i]));
-        output.setInt16(i, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-      }
-
-      buffers.push(new Int16Array(output.buffer));
+      buffers.push(input);
     }
 
     this.encoder.postMessage({
       command: "encode",
       buffers,
-      sampleRate: audioData.sampleRate,
     });
   }
 };
@@ -155,9 +144,8 @@ AACRecorder.prototype.flush = function () {
 
 AACRecorder.prototype.reset = function () {
   this.state = "unconfigured";
-
   if (this.encoder) {
-    this.encoder.postMessage({ command: "close" });
+    this.encoder.postMessage({ command: "done" });
   }
 };
 
@@ -165,8 +153,8 @@ AACRecorder.prototype.close = function () {
   this.state = "closed";
   if (this.encoder) {
     this.encoder.postMessage({ command: "done" });
+    this.encoder.postMessage({ command: "close" });
   }
 };
 
-global.AACRecorder = AACRecorder;
 module.exports = AACRecorder;
