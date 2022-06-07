@@ -8,8 +8,9 @@
     <button id="start">start</button>
   </body>
   <script>
-    let audioCodecType = "aac";
-    let aacEncoder = new AACEncoder({
+    let audioCodecType = "opus";
+    let AEncoder = audioCodecType === "aac" ? AACEncoder : AudioEncoder;
+    let audioEncoder = new AEncoder({
       output: handleAudioEncoded,
       error: (err) => {
         console.log("AACEncoder error", err);
@@ -36,9 +37,11 @@
       const processor = new MediaStreamTrackProcessor(audioTrack);
       const reader = processor.readable.getReader();
 
-      await aacEncoder.configure({
+      await audioEncoder.configure({
         encoderPath: '../dist-unminified/encoderWorker.js',
-        numberOfChannels: channelCount.max,
+        codec: audioCodecType,
+        biterate: 64000,
+        numberOfChannels: 1,
         sampleRate: sampleRate.max,
       });
 
@@ -48,12 +51,16 @@
         if (result.done) {
           break;
         }
-        aacEncoder.encode(result.value);
+        audioEncoder.encode(result.value);
         result.value.close();
       }
     }
 
     function handleAudioEncoded(chunk) {
+      if (chunk.byteLength === 0) {
+        return;
+      }
+      console.log('audio', chunk);
       let chunkData = new Uint8Array(chunk.byteLength);
       chunk.copyTo(chunkData);
       decodedAudio.push(chunk);

@@ -61,7 +61,7 @@ AACRecorder.prototype.configure = function (config) {
   );
 
   this.encoder = new global.Worker(this.config.encoderPath);
-  
+
   var startTime;
 
   return new Promise((resolve) => {
@@ -80,7 +80,7 @@ AACRecorder.prototype.configure = function (config) {
             new EncodedAudioChunk({
               type: "key",
               timestamp: (Date.now() - startTime) * 1000,
-              duration: this.config.encoderFrameSize,
+              duration: this.config.encoderFrameSize * 1000,
               data: data["aac"],
             })
           );
@@ -118,9 +118,9 @@ AACRecorder.prototype.encode = function (audioData) {
     const buffers = [];
 
     for (let index = 0; index < audioData.numberOfChannels; index++) {
-      const buffer = new Float32Array(audioData.numberOfFrames);
+      const input = new Float32Array(audioData.numberOfFrames);
 
-      audioData.copyTo(buffer, {
+      audioData.copyTo(input, {
         planeIndex: index,
         frameOffset: 0,
         frameCount: audioData.numberOfFrames,
@@ -131,19 +131,19 @@ AACRecorder.prototype.encode = function (audioData) {
         new ArrayBuffer(audioData.numberOfFrames * 2)
       );
 
-      for (let i = 0; i < buffer.length; i++) {
+      for (let i = 0; i < input.length; i++) {
         const s = Math.max(-1, Math.min(1, input[i]));
         output.setInt16(i, s < 0 ? s * 0x8000 : s * 0x7fff, true);
       }
 
-      buffers.push(output.buffer);
+      buffers.push(new Int16Array(output.buffer));
     }
 
     this.encoder.postMessage({
       command: "encode",
       buffers,
       sampleRate: audioData.sampleRate,
-    }, [buffers]);
+    });
   }
 };
 

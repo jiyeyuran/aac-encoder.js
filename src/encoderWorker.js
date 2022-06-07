@@ -59,27 +59,62 @@ AACEncoder.prototype.initCodec = function () {
   const afterburner = 1;
   const { numberOfChannels, biterate, sampleRate, encoderFrameSize } =
     this.config;
+  let ret;
 
-  this._handle = this._malloc(4);
-  this._aacEncOpen(this._handle, 0, numberOfChannels);
-  this._aacEncoder_SetParam(this._handle, AACENC_AOT, aot);
-  this._aacEncoder_SetParam(this._handle, AACENC_SAMPLERATE, sampleRate);
-  this._aacEncoder_SetParam(this._handle, AACENC_CHANNELMODE, numberOfChannels);
-  this._aacEncoder_SetParam(this._handle, AACENC_CHANNELORDER, 1);
-  this._aacEncoder_SetParam(this._handle, AACENC_BITRATE, biterate);
-  this._aacEncoder_SetParam(this._handle, AACENC_TRANSMUX, TT_MP4_ADTS);
-  this._aacEncoder_SetParam(this._handle, AACENC_AFTERBURNER, afterburner);
-
-  let ret = this._aacEncEncode(this._handle, null, null, null, null);
-
+  const handlePointer = this._malloc(4);
+  ret = this._aacEncOpen(handlePointer, 0, numberOfChannels);
   if (ret !== AACENC_OK) {
-    throw new Error("aac encoder init failed");
+    throw new Error("Unable to open encoder");
+  }
+  this._handle = this.HEAP32[handlePointer >> 2];
+
+  ret = this._aacEncoder_SetParam(this._handle, AACENC_AOT, aot);
+  if (ret !== AACENC_OK) {
+    throw new Error(`Unable to set the AOT: ${aot}`);
+  }
+  ret = this._aacEncoder_SetParam(this._handle, AACENC_SAMPLERATE, sampleRate);
+  if (ret !== AACENC_OK) {
+    throw new Error(`Unable to set the sample rate: ${sampleRate}`);
+  }
+  ret = this._aacEncoder_SetParam(
+    this._handle,
+    AACENC_CHANNELMODE,
+    numberOfChannels
+  );
+  if (ret !== AACENC_OK) {
+    throw new Error(`Unable to set the channel mode: ${numberOfChannels}`);
+  }
+  ret = this._aacEncoder_SetParam(this._handle, AACENC_CHANNELORDER, 1);
+  if (ret !== AACENC_OK) {
+    throw new Error(`Unable to set the channel order: 1`);
+  }
+  ret = this._aacEncoder_SetParam(this._handle, AACENC_BITRATE, biterate);
+  if (ret !== AACENC_OK) {
+    throw new Error(`Unable to set the bitrate: ${biterate}`);
+  }
+  ret = this._aacEncoder_SetParam(this._handle, AACENC_TRANSMUX, TT_MP4_ADTS);
+  if (ret !== AACENC_OK) {
+    throw new Error(`Unable to set the ADTS transmux: ${TT_MP4_ADTS}`);
+  }
+  ret = this._aacEncoder_SetParam(
+    this._handle,
+    AACENC_AFTERBURNER,
+    afterburner
+  );
+  if (ret !== AACENC_OK) {
+    throw new Error(`Unable to set the afterburner mode: ${afterburner}`);
+  }
+  ret = this._aacEncEncode(this._handle, null, null, null, null);
+  if (ret !== AACENC_OK) {
+    throw new Error("Unable to initialize the encoder");
   }
 
   var infoPointer = this._malloc(96);
-  this._aacEncInfo(this._handle, infoPointer);
-  var frameLength = this.HEAP32[(infoPointer >> 2) + 5];
-  console.log("infoPointer", infoPointer, "_handle", this._handle, frameLength);
+  ret = this._aacEncInfo(this._handle, infoPointer);
+  if (ret !== AACENC_OK) {
+    throw new Error("Unable to get the encoder info");
+  }
+  var frameLength = this.HEAP32[(infoPointer >> 2) + 4];
 
   this.encoderSamplesPerChannel = (sampleRate * encoderFrameSize) / 1000;
   this.encoderSamplesPerChannelPointer = this._malloc(4);
@@ -200,14 +235,18 @@ AACEncoder.prototype.encode = function (buffers) {
 
       this.resampleBufferIndex = 0;
 
-      this._aacEncEncode(
+      const ret = this._aacEncEncode(
         this._handle,
         this.inBufDescPointer,
         this.outBufDecPointer,
         this.inArgsPointer,
         this.outArgsPointer
       );
-      const numOutBytes = this.getNumOutBytes();
+      if (ret !== AACENC_OK) {
+        throw new Error(`Encoding failed: ${ret}`);
+      }
+      const numOutBytes = this.HEAP32[this.outArgsPointer >> 2];
+      console.log('numOutBytes', numOutBytes);
       var outBuffer = new Uint8Array(numOutBytes);
       outBuffer.set(this.encoderOutputBuffer.subarray(0, numOutBytes));
 
@@ -267,7 +306,7 @@ AACEncoder.prototype.createBufDesc = function (
 
   // init AACENC_BufDesc struct
   const bufDescPointer = this._malloc(4);
-  const basePointer = bufDescPointer >> 2;
+  let basePointer = bufDescPointer >> 2;
   this.HEAP32[basePointer++] = 1;
   this.HEAP32[basePointer++] = bufPtr;
   this.HEAP32[basePointer++] = identifierPtr;
@@ -285,14 +324,10 @@ AACEncoder.prototype.freeBufDesc = function (bufDescPointer) {
   this._free(bufDescPointer);
 };
 
-AACEncoder.prototype.getNumOutBytes = function () {
-  return this.HEAP32[this.outArgsPointer >> 2];
-};
-
 var encoder;
-var postAACDataGlobal = (aacData) => {
-  if (aacData) {
-    postMessage({ message: "aac", aac: aacData }, [aacData.data.buffer]);
+var postAACDataGlobal = (data) => {
+  if (data) {
+    postMessage({ message: "aac", aac: data }, [data.buffer]);
   }
 };
 
@@ -302,7 +337,7 @@ onmessage = ({ data }) => {
       case "encode":
         encoder
           .encode(data["buffers"])
-          .forEach((aacData) => postAACDataGlobal(aacData));
+          .forEach((data) => postAACDataGlobal(data));
         break;
 
       case "done":
