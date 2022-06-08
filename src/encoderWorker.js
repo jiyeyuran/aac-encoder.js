@@ -50,8 +50,7 @@ const AACEncoder = function (config, Module) {
 AACEncoder.prototype.initCodec = function () {
   const aot = 2;
   const afterburner = 1;
-  const { numberOfChannels, biterate, sampleRate } =
-    this.config;
+  const { numberOfChannels, biterate, sampleRate } = this.config;
   let ret;
 
   const handlePointer = this._malloc(4);
@@ -102,13 +101,7 @@ AACEncoder.prototype.initCodec = function () {
     throw new Error("Unable to initialize the encoder");
   }
 
-  var infoPointer = this._malloc(96);
-  ret = this._aacEncInfo(this._handle, infoPointer);
-  if (ret !== AACENC_OK) {
-    throw new Error("Unable to get the encoder info");
-  }
-  const frameLength = this.HEAP32[(infoPointer >> 2) + 4];
-
+  const frameLength = this.getFrameLength();
   this.encoderBufferLength = numberOfChannels * frameLength;
   this.encoderBufferPointer = this._malloc(this.encoderBufferLength * 2); // 2 bytes per sample
   this.encoderBuffer = this.HEAP16.subarray(
@@ -191,13 +184,16 @@ AACEncoder.prototype.encode = function (buffers) {
         }
         throw new Error(`Encoding failed: ${ret}`);
       }
-      const numOutBytes = this.HEAP32[this.outArgsPointer >> 2];
+      const { numOutBytes, numInSamples } = this.getOutArgs();
       if (numOutBytes === 0) {
         continue;
       }
       const outputBuffer = new Uint8Array(numOutBytes);
       outputBuffer.set(this.encoderOutputBuffer.subarray(0, numOutBytes));
-      outputBuffers.push(outputBuffer);
+      outputBuffers.push({
+        buffer: outputBuffer,
+        duration: parseInt((numInSamples * 1000) / this.config.sampleRate, 10),
+      });
     }
   }
 
@@ -207,9 +203,13 @@ AACEncoder.prototype.encode = function (buffers) {
 AACEncoder.prototype.destroy = function () {
   if (this.encoder) {
     this._free(this.inArgsPointer);
+    delete this.inArgsPointer;
     this._free(this.outArgsPointer);
+    delete this.outArgsPointer;
     this.freeBufDesc(this.inBufDescPointer);
+    delete this.inBufDescPointer;
     this.freeBufDesc(this.outBufDecPointer);
+    delete this.outBufDecPointer;
     this._free(this.encoderBufferPointer);
     delete this.encoderBufferPointer;
     this._free(this.encoderOutputPointer);
@@ -232,7 +232,7 @@ AACEncoder.prototype.flush = function () {
     if (ret !== AACENC_OK) {
       break;
     }
-    const numOutBytes = this.HEAP32[this.outArgsPointer >> 2];
+    const { numOutBytes, numInSamples } = this.getOutArgs();
     if (numOutBytes === 0) {
       this.setBufDescSize(this.inBufDescPointer, 0);
       // numInSamples set to -1
@@ -241,7 +241,10 @@ AACEncoder.prototype.flush = function () {
     }
     var buffer = new Uint8Array(numOutBytes);
     buffer.set(this.encoderOutputBuffer.subarray(0, numOutBytes));
-    buffers.push(buffer);
+    buffers.push({
+      buffer,
+      duration: parseInt((numInSamples * 1000) / this.config.sampleRate, 10),
+    });
   }
 
   return buffers;
@@ -268,11 +271,6 @@ AACEncoder.prototype.createInBufDesc = function (bufferPointer, length) {
   this.HEAP32[basePointer++] = elemSizePtr;
 
   return bufDescPointer;
-};
-
-AACEncoder.prototype.setBufDescSize = function (bufDescPointer, size) {
-  const sizePtr = this.HEAP32[(bufDescPointer >> 2) + 3];
-  this.HEAP32[sizePtr >> 2] = size;
 };
 
 AACEncoder.prototype.createOutBufDesc = function (bufferPointer, length) {
@@ -306,10 +304,41 @@ AACEncoder.prototype.freeBufDesc = function (bufDescPointer) {
   this._free(bufDescPointer);
 };
 
+AACEncoder.prototype.getFrameLength = function () {
+  var infoPointer = this._malloc(96);
+  ret = this._aacEncInfo(this._handle, infoPointer);
+  if (ret !== AACENC_OK) {
+    throw new Error("Unable to get the encoder info");
+  }
+  const frameLength = this.HEAP32[(infoPointer >> 2) + 4];
+  this._free(infoPointer);
+
+  return frameLength;
+};
+
+AACEncoder.prototype.setBufDescSize = function (bufDescPointer, size) {
+  const sizePtr = this.HEAP32[(bufDescPointer >> 2) + 3];
+  this.HEAP32[sizePtr >> 2] = size;
+};
+
+AACEncoder.prototype.getOutArgs = function () {
+  const numOutBytes = this.HEAP32[this.outArgsPointer >> 2];
+  const numInSamples = this.HEAP32[(this.outArgsPointer >> 2) + 1];
+  const numAncBytes = this.HEAP32[(this.outArgsPointer >> 2) + 2];
+  const bitResState = this.HEAP32[(this.outArgsPointer >> 2) + 3];
+
+  return {
+    numOutBytes,
+    numInSamples,
+    numAncBytes,
+    bitResState,
+  };
+};
+
 var encoder;
-var postAACDataGlobal = (data) => {
-  if (data) {
-    postMessage({ message: "aac", aac: data }, [data.buffer]);
+var postAACDataGlobal = ({ buffer, duration }) => {
+  if (buffer) {
+    postMessage({ message: "aac", aac: buffer, duration }, [buffer.buffer]);
   }
 };
 
@@ -330,7 +359,7 @@ onmessage = ({ data }) => {
         break;
 
       case "flush":
-        encoder.flush().forEach((data) => postAACDataGlobal(data));;
+        encoder.flush().forEach((data) => postAACDataGlobal(data));
         postMessage({ message: "flushed" });
 
       default:

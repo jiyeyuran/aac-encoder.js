@@ -79,7 +79,7 @@ AACRecorder.prototype.configure = function (config) {
             new EncodedAudioChunk({
               type: "key",
               timestamp: (now - startTime) * 1000,
-              duration: 0,
+              duration: data["duration"] * 1000,
               data: data["aac"],
             })
           );
@@ -129,10 +129,13 @@ AACRecorder.prototype.encode = function (audioData) {
       buffers.push(input);
     }
 
-    this.encoder.postMessage({
-      command: "encode",
-      buffers,
-    });
+    this.encoder.postMessage(
+      {
+        command: "encode",
+        buffers,
+      },
+      buffers.map((b) => b.buffer)
+    );
   }
 };
 
