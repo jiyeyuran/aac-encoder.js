@@ -50,6 +50,7 @@ AACRecorder.prototype.configure = function (config) {
   }
   this.config = Object.assign(
     {
+      codec: "aac",
       bitrate: 64000,
       encoderPath: "encoderWorker.min.js",
       sampleRate: 48000,
@@ -72,8 +73,24 @@ AACRecorder.prototype.configure = function (config) {
 
         case "aac":
           const now = Date.now();
+          let metadata;
           if (!startTime) {
             startTime = now;
+            const { codec, numberOfChannels, sampleRate } = this.config;
+            const sampleRateIndex = getSampleRateIndex(sampleRate);
+            description = new Uint8Array(2);
+            description[0] = (0x02 << 3) + ((sampleRateIndex & 0x0f) >> 1);
+            description[1] =
+              ((sampleRateIndex & 0x01) << 7) +
+              ((numberOfChannels & 0x0f) << 3);
+            metadata = {
+              decoderConfig: {
+                codec,
+                description,
+                numberOfChannels,
+                sampleRate,
+              },
+            };
           }
           this.init.output(
             new EncodedAudioChunk({
@@ -81,7 +98,8 @@ AACRecorder.prototype.configure = function (config) {
               timestamp: (now - startTime) * 1000,
               duration: data["duration"] * 1000,
               data: data["aac"],
-            })
+            }),
+            metadata
           );
           break;
 
@@ -159,5 +177,13 @@ AACRecorder.prototype.close = function () {
     this.encoder.postMessage({ command: "close" });
   }
 };
+
+function getSampleRateIndex(sampleRate) {
+  const index = [
+    96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025,
+    8000,
+  ].indexOf(sampleRate);
+  return index < 0 ? 0x0f : index;
+}
 
 module.exports = AACRecorder;
